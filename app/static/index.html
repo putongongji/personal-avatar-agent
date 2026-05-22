@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Avatar Agent</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell chat-shell">
+      <aside class="conversation-sidebar">
+        <a class="brand sidebar-brand" href="/">
+          <strong>Personal Avatar Agent</strong>
+          <span>职业生涯档案问答</span>
+        </a>
+        <button id="newConversation" class="new-chat" type="button">新话题</button>
+        <div id="conversationList" class="conversation-list"></div>
+        <a class="admin-link" href="/admin">后台</a>
+      </aside>
+
+      <main class="chat-layout">
+        <section class="chat-stage">
+          <div id="messages" class="messages"></div>
+          <form id="composer" class="composer">
+            <div class="composer-inner">
+              <div id="suggestions" class="suggestions inline-suggestions"></div>
+              <div class="input-row">
+                <textarea id="question" rows="1" placeholder="问一个关于叁金职业经历、项目或能力的问题"></textarea>
+                <button id="send" class="primary" type="submit">发送</button>
+              </div>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

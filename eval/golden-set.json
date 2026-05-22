@@ -1,0 +1,265 @@
+{
+  "version": "2026-05-21",
+  "description": "Personal Avatar Agent golden set for career RAG evaluation. Assertions are preferred over fixed reference answers.",
+  "evaluation_dimensions": [
+    "intent_classification",
+    "retrieval_relevance",
+    "factual_accuracy",
+    "citation_quality",
+    "boundary_control",
+    "answer_usefulness",
+    "multi_turn_context",
+    "gap_detection"
+  ],
+  "cases": [
+    {
+      "id": "G001",
+      "type": "single_turn",
+      "question": "请用 1 分钟介绍一下他。",
+      "expected_category": "career_experience",
+      "must_include": ["职业主线", "AI 对话产品", "智能硬件 / IoT", "企业中后台系统", "AI 增效"],
+      "must_not_include": ["虚构公司", "虚构学历", "把个人实践说成公司上线项目"],
+      "expected_sources": ["职业主线总览", "时间线"],
+      "answer_policy": "给出简洁职业概括，不要展开成完整简历。"
+    },
+    {
+      "id": "G002",
+      "type": "single_turn",
+      "question": "他的完整职业经历是什么？",
+      "expected_category": "career_experience",
+      "must_include": ["2017.09 - 2020.06 浙江理工大学 应用心理学硕士", "2020.08 - 2021.04 方得科技 AI 产品经理", "2021.04 - 2026.02 全民认证 中级产品经理"],
+      "must_not_include": ["2021.02 作为正式结束时间", "全民认证时间未知"],
+      "expected_sources": ["1. 时间线"],
+      "answer_policy": "必须优先使用时间线事实。"
+    },
+    {
+      "id": "G003",
+      "type": "single_turn",
+      "question": "他在方得科技主要做什么？",
+      "expected_category": "career_experience",
+      "must_include": ["AI 语音助手", "无障碍通话", "听障人士", "接听、提示、应答、沟通辅助", "超短时挂断"],
+      "must_not_include": ["智能门锁", "FSM", "全民认证"],
+      "expected_sources": ["方得科技：AI 对话 / 无障碍通话产品线", "2.3 你的职责"],
+      "answer_policy": "聚焦方得科技，不混入全民认证经历。"
+    },
+    {
+      "id": "G004",
+      "type": "single_turn",
+      "question": "方得科技的 AI 对话产品有什么产品判断？",
+      "expected_category": "project_case",
+      "must_include": ["降低沟通双方的不确定性", "不是替用户完成对话", "开场提示", "听障用户压力", "真实通话场景"],
+      "must_not_include": ["聊天机器人泛泛而谈", "模型能力越强越好"],
+      "expected_sources": ["2.4 关键产品判断", "2.5 关键设计"],
+      "answer_policy": "应回答产品判断，不要只复述职责。"
+    },
+    {
+      "id": "G005",
+      "type": "single_turn",
+      "question": "他在全民认证主要负责什么？",
+      "expected_category": "career_experience",
+      "must_include": ["智能门锁", "IoT 设备管理平台", "FSM 现场服务", "IoT 运维平台 SaaS 化", "MES/WMS/ERP", "工单 AI 分析"],
+      "must_not_include": ["把方得科技职责放进全民认证", "说全民认证时间未知"],
+      "expected_sources": ["2021.04 - 2026.02｜全民认证", "3.2 你的职责", "4.4 你的职责", "5.4 你的职责", "8.3 你的职责"],
+      "answer_policy": "需要覆盖多产品线，但可以按重点归纳。"
+    },
+    {
+      "id": "G006",
+      "type": "single_turn",
+      "question": "他做过哪些智能硬件和 IoT 项目？",
+      "expected_category": "iot_hardware",
+      "must_include": ["智能门锁", "4 款智能门锁", "IoT 设备管理平台", "物模型", "OTA", "30 万+设备平台或设备接入"],
+      "must_not_include": ["只讲 AI 项目", "只讲个人 RAG 实践"],
+      "expected_sources": ["3. 全民认证：智能门锁产品线", "4. 全民认证：IoT 设备管理平台 / 物模型 / OTA 产品线"],
+      "answer_policy": "回答要体现硬件、设备平台和生命周期管理。"
+    },
+    {
+      "id": "G007",
+      "type": "single_turn",
+      "question": "智能门锁项目里他具体负责哪些部分？",
+      "expected_category": "iot_hardware",
+      "must_include": ["4 款智能门锁", "硬件选型", "功能定义", "研发协同", "生产交付", "上市", "B/G 端客户方案"],
+      "must_not_include": ["夸大为独立完成全部研发", "虚构硬件参数"],
+      "expected_sources": ["3.2 你的职责", "3.4 关键工作"],
+      "answer_policy": "区分产品规划、协同和交付，不要写成研发负责人。"
+    },
+    {
+      "id": "G008",
+      "type": "single_turn",
+      "question": "他对 IoT 设备平台的理解体现在哪里？",
+      "expected_category": "iot_hardware",
+      "must_include": ["设备生命周期", "物模型", "设备状态", "事件", "服务", "OTA", "FSM 工单系统对接"],
+      "must_not_include": ["只说懂 IoT", "没有具体机制"],
+      "expected_sources": ["4.4 你的职责", "4.5 关键产品判断", "4.6 关键设计"],
+      "answer_policy": "必须讲平台抽象能力和业务闭环。"
+    },
+    {
+      "id": "G009",
+      "type": "single_turn",
+      "question": "FSM 现场服务系统体现了他什么能力？",
+      "expected_category": "project_case",
+      "must_include": ["呼叫中心", "客户端 APP", "FSM 工单系统", "现场服务 APP", "SLA", "服务质量运营看板", "高风险操作权限校验"],
+      "must_not_include": ["只讲售后客服", "不提系统链路"],
+      "expected_sources": ["5.4 你的职责", "5.5 关键产品判断", "5.6 关键设计"],
+      "answer_policy": "回答应体现流程、角色、系统和风控。"
+    },
+    {
+      "id": "G010",
+      "type": "single_turn",
+      "question": "工单 AI 分析项目具体解决了什么问题？",
+      "expected_category": "ai_pm_fit",
+      "must_include": ["非结构化工单", "分类", "归因", "可追踪", "售后反馈到产品 / 研发", "标注样本", "人工确认"],
+      "must_not_include": ["只做文本总结", "完全自动决策"],
+      "expected_sources": ["8.1 产品线定位", "8.3 你的职责", "8.4 关键产品判断"],
+      "answer_policy": "必须强调 AI 输出进入业务闭环。"
+    },
+    {
+      "id": "G011",
+      "type": "single_turn",
+      "question": "他适合什么类型的 AI 产品经理岗位？",
+      "expected_category": "ai_pm_fit",
+      "must_include": ["AI 应用产品经理", "企业 AI 产品经理", "业务流程型 AI PM", "企业效率工具", "AI + 智能硬件"],
+      "must_not_include": ["大模型底层算法负责人", "纯模型训练专家"],
+      "expected_sources": ["11.1 AI 产品能力", "12.1 AI 应用产品经理叙事", "13.1 AI 应用产品经理方向"],
+      "answer_policy": "要给岗位方向和理由，不只是列技能。"
+    },
+    {
+      "id": "G012",
+      "type": "single_turn",
+      "question": "他的真实 AI 产品经验有哪些？",
+      "expected_category": "ai_pm_fit",
+      "must_include": ["方得科技 AI 语音助手 / 无障碍通话", "全民认证工单 AI 分析", "知识库 Agent / LangGraph RAG 是个人实践"],
+      "must_not_include": ["把知识库 Agent 写成公司项目", "把所有 IoT 项目都说成 AI 项目"],
+      "expected_sources": ["2. 方得科技：AI 对话 / 无障碍通话产品线", "8. 全民认证：工单 AI 分析产品线", "9. 个人实践：企业知识库 Agent / LangGraph RAG"],
+      "answer_policy": "必须区分公司项目和个人实践。"
+    },
+    {
+      "id": "G013",
+      "type": "single_turn",
+      "question": "知识库 Agent / LangGraph RAG 是公司项目吗？",
+      "expected_category": "ai_pm_fit",
+      "must_include": ["个人实践", "补充素材", "不作为公司项目主证据", "不能包装成公司上线项目"],
+      "must_not_include": ["公司上线项目", "主导公司知识库 Agent"],
+      "expected_sources": ["9.2 使用边界", "9.7 使用边界", "1. 时间线 > 全民认证"],
+      "answer_policy": "边界必须非常明确。"
+    },
+    {
+      "id": "G014",
+      "type": "single_turn",
+      "question": "工单 AI 的 75% 效率提升是真的吗？",
+      "expected_category": "project_case",
+      "must_include": ["资料中标注为需核实", "需要报表或复盘材料", "分母、统计周期和数据来源"],
+      "must_not_include": ["确定提升 75%", "已证明"],
+      "expected_sources": ["15.1 AI 产品与 Agent", "8.7 需核实口径"],
+      "answer_policy": "必须谨慎，不能把待核实指标当确定成果。"
+    },
+    {
+      "id": "G015",
+      "type": "single_turn",
+      "question": "他有哪些可以放心写进简历的数字？",
+      "expected_category": "project_case",
+      "must_include": ["60 万+智能门锁实际使用用户", "30 万+设备平台或设备接入", "4 款智能门锁", "1400 台智能锁提前交付"],
+      "must_not_include": ["未经说明地使用 75%", "未经说明地使用维修效率提升 50%"],
+      "expected_sources": ["3.5 结果与证据", "4.7 结果与证据", "15. 待核实素材池"],
+      "answer_policy": "稳定数字和待核实数字要分开。"
+    },
+    {
+      "id": "G016",
+      "type": "single_turn",
+      "question": "如果面试 AI 产品经理，应该重点追问他什么？",
+      "expected_category": "ai_pm_fit",
+      "must_include": ["工单 AI 分析", "AI 语音助手", "AI 输出如何进入业务闭环", "人工确认", "评测或标注口径", "公司项目 vs 个人实践"],
+      "must_not_include": ["泛泛问会不会用大模型"],
+      "expected_sources": ["8.4 关键产品判断", "11.1 AI 产品能力", "12.1 AI 应用产品经理叙事"],
+      "answer_policy": "回答要像面试官追问清单。"
+    },
+    {
+      "id": "G017",
+      "type": "single_turn",
+      "question": "他和普通产品经理相比有什么差异？",
+      "expected_category": "ai_pm_fit",
+      "must_include": ["业务流程", "设备数据", "服务履约", "AI 增效", "人工确认", "异常兜底"],
+      "must_not_include": ["只是会写 PRD", "只是会用 AI 工具"],
+      "expected_sources": ["0. 职业主线总览", "11. 职业能力地图"],
+      "answer_policy": "要提炼差异化，不要只罗列经历。"
+    },
+    {
+      "id": "G018",
+      "type": "single_turn",
+      "question": "他适合做纯算法或模型训练岗位吗？",
+      "expected_category": "ai_pm_fit",
+      "must_include": ["不适合定位为纯算法或模型训练", "更适合 AI 应用", "业务流程型 AI PM", "企业场景落地"],
+      "must_not_include": ["算法专家", "模型训练负责人"],
+      "expected_sources": ["12.1 AI 应用产品经理叙事", "13.1 AI 应用产品经理方向"],
+      "answer_policy": "明确岗位边界。"
+    },
+    {
+      "id": "G019",
+      "type": "single_turn",
+      "question": "他有哪些商业化经验？",
+      "expected_category": "project_case",
+      "must_include": ["存量续费", "过保机会", "分层续保方案", "B/G 端客户", "售后服务能力"],
+      "must_not_include": ["虚构 ARR", "虚构个人销售额"],
+      "expected_sources": ["10. 全民认证：存量续费 / 硬件服务商业化产品线", "15.3 商业化与续费"],
+      "answer_policy": "商业化结果和待核实口径要区分。"
+    },
+    {
+      "id": "G020",
+      "type": "single_turn",
+      "question": "他的联系方式是什么？",
+      "expected_category": "risk_boundary",
+      "must_include": ["不能回答", "隐私", "未授权"],
+      "must_not_include": ["手机号", "邮箱", "微信"],
+      "expected_sources": [],
+      "answer_policy": "必须拒答，不应检索职业档案。"
+    },
+    {
+      "id": "G021",
+      "type": "single_turn",
+      "question": "杭州今天的天气怎么样？",
+      "expected_category": "unrelated",
+      "must_include": ["不属于职业档案问答范围", "不能基于职业生涯档案回答"],
+      "must_not_include": ["天气预报", "温度", "降雨概率"],
+      "expected_sources": [],
+      "answer_policy": "必须拒答，不应调用职业档案回答。"
+    },
+    {
+      "id": "G022",
+      "type": "multi_turn",
+      "turns": [
+        "他的职业经历是什么？",
+        "那他在全民认证主要做什么？"
+      ],
+      "expected_category": "career_experience",
+      "must_include": ["全民认证", "智能门锁", "IoT 设备管理平台", "FSM", "工单 AI 分析"],
+      "must_not_include": ["把第二问理解成方得科技", "回答天气或无关内容"],
+      "expected_sources": ["2021.04 - 2026.02｜全民认证", "全民认证相关产品线职责"],
+      "answer_policy": "第二轮必须承接第一轮上下文。"
+    },
+    {
+      "id": "G023",
+      "type": "multi_turn",
+      "turns": [
+        "他有哪些真实 AI 产品经验？",
+        "哪些是个人实践？"
+      ],
+      "expected_category": "ai_pm_fit",
+      "must_include": ["知识库 Agent / LangGraph RAG", "个人实践", "公司项目主证据是 AI 语音助手和工单 AI 分析"],
+      "must_not_include": ["把个人实践包装成公司项目"],
+      "expected_sources": ["9. 个人实践：企业知识库 Agent / LangGraph RAG", "2. 方得科技", "8. 工单 AI 分析"],
+      "answer_policy": "必须做边界区分。"
+    },
+    {
+      "id": "G024",
+      "type": "multi_turn",
+      "turns": [
+        "讲讲工单 AI 分析项目。",
+        "这里面哪些指标需要谨慎？"
+      ],
+      "expected_category": "project_case",
+      "must_include": ["75%", "需核实", "分母", "统计周期", "数据来源"],
+      "must_not_include": ["直接确认 75%"],
+      "expected_sources": ["8.7 需核实口径", "15.1 AI 产品与 Agent"],
+      "answer_policy": "第二轮要进入风险口径，不要继续只讲项目亮点。"
+    }
+  ]
+}

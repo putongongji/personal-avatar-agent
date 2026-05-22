@@ -1,0 +1,95 @@
+{
+  "updated_at": "2026-05-20",
+  "sources": [
+    {
+      "id": "answer_policy",
+      "title": "回答边界与公开口径",
+      "path": "knowledge/public/answer-policy.md",
+      "access": "public",
+      "category": "policy",
+      "confirmed": true,
+      "enabled": false,
+      "notes": "第一版公开问答的边界、拒答和质量规则。"
+    },
+    {
+      "id": "career_panorama",
+      "title": "职业生涯全景档案",
+      "path": "~/无用/AREA/职业生涯/职业生涯全景档案-按公司产品线.md",
+      "access": "public",
+      "category": "career",
+      "confirmed": true,
+      "enabled": true,
+      "notes": "职业事实最高优先级来源，用于工作经历、项目案例、指标和岗位匹配。"
+    },
+    {
+      "id": "avatar_index",
+      "title": "数字化身索引",
+      "path": "~/无用/AREA/数字化身/index.md",
+      "access": "public",
+      "category": "avatar",
+      "confirmed": true,
+      "enabled": false,
+      "notes": "只用于解释数字化身结构，不包含阴影层细节。"
+    },
+    {
+      "id": "avatar_interface",
+      "title": "数字化身交互层",
+      "path": "~/无用/AREA/数字化身/interface.md",
+      "access": "public",
+      "category": "avatar",
+      "confirmed": false,
+      "enabled": false,
+      "notes": "用于公开回答协作方式、表达偏好和当前关注；敏感内容后续应拆分。"
+    },
+    {
+      "id": "projects_overview",
+      "title": "项目总 Context",
+      "path": "~/无用/项目/CONTEXT.md",
+      "access": "public",
+      "category": "project",
+      "confirmed": true,
+      "enabled": false,
+      "notes": "用于回答个人项目版图和当前 active projects。"
+    },
+    {
+      "id": "resume_builder_context",
+      "title": "resume-builder Context",
+      "path": "~/无用/项目/resume-builder/CONTEXT.md",
+      "access": "public",
+      "category": "project",
+      "confirmed": true,
+      "enabled": false,
+      "notes": "用于回答 AI 简历构建器相关项目。"
+    },
+    {
+      "id": "qingxing_bot_context",
+      "title": "qingxing-bot Context",
+      "path": "~/无用/项目/qingxing-bot/CONTEXT.md",
+      "access": "public",
+      "category": "project",
+      "confirmed": true,
+      "enabled": false,
+      "notes": "用于回答清醒简报 Bot 和网页 demo。"
+    },
+    {
+      "id": "lumina_context",
+      "title": "lumina-book-agent Context",
+      "path": "~/无用/项目/lumina-book-agent/CONTEXT.md",
+      "access": "public",
+      "category": "project",
+      "confirmed": true,
+      "enabled": false,
+      "notes": "用于回答书籍阅读与知识萃取 Agent 项目。"
+    },
+    {
+      "id": "cognition_filter_context",
+      "title": "cognition-filter Context",
+      "path": "~/无用/项目/cognition-filter/CONTEXT.md",
+      "access": "public",
+      "category": "project",
+      "confirmed": true,
+      "enabled": false,
+      "notes": "用于回答 AI PM 决策信号过滤器项目。"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+# First MVP uses only Python standard library so it runs on the local Python 3.14 environment.
