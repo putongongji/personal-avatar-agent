@@ -1,8 +1,8 @@
 .env
 .env.local
 .env.*.local
-!.env.example
 
+.git
 .DS_Store
 __pycache__/
 *.pyc
@@ -11,4 +11,3 @@ data/
 *.sqlite3
 *.log
 *.pid
-.vercel

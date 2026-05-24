@@ -1,0 +1,6 @@
+[project]
+name = "personal-avatar-agent"
+version = "0.1.0"
+description = "Personal avatar RAG Q&A MVP."
+requires-python = ">=3.14"
+dependencies = []

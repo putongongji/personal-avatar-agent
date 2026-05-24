@@ -1,6 +1,6 @@
 # personal-avatar-agent Context
 
-最近更新时间：2026-05-22
+最近更新时间：2026-05-24
 
 ## 这个项目是什么
 
@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-已搭建标准库 HTTP 单体应用，包含 Codex 风格聊天页、真实步骤进度、逐字打字机回答、Markdown 回答渲染、动态推荐问题、S1/S2 引用悬浮原句、后台入口、职业档案检索、MiniMax 回答、硅基流动 `BAAI/bge-m3` embedding 接口、Qwen 分类、多轮会话、SQLite 提问记录、资料缺口统计和回答质量分。
+已搭建标准库 HTTP 单体应用，包含 Codex 风格聊天页、真实步骤进度、逐字打字机回答、Markdown 回答渲染、动态推荐问题、S1/S2 引用悬浮原句、后台入口、职业档案检索、MiniMax 回答、硅基流动 `BAAI/bge-m3` embedding 接口、Qwen 分类、多轮会话、SQLite 提问记录、资料缺口统计和回答质量分。项目已增加 Vercel 部署适配，线上以 `public/` 静态页 + `api/` Python Functions 运行。
 
 ## 最近进展
 
@@ -34,6 +34,7 @@
 - 重做聊天页交互：新增对话列表与新话题入口，流式输出自动跟随最新内容，输入框回车发送、Shift+Enter 换行且不出现内部滚动条，进度改为运行中动效与完成后默认折叠的执行过程。
 - 改进后台评测报告：`eval_runner` 不再只显示失败原因，会按分类、检索、答案覆盖、边界和引用拆分维度分，并标明缺失事实是未召回还是已召回但未写入回答。
 - 后台评测报告改为弹窗呈现，并新增按需生成的 MiniMax AI 分析，基于每条 golden case 的维度分、实际回答、实际来源和召回结果分析原因与改进方案，结果缓存到 `details_json.ai_analysis`。
+- 新增 Vercel 部署结构：`public/` 存放线上静态页面，`api/` 暴露 Python Function 入口，`knowledge/public/career-panorama.md` 存放公开职业档案副本。
 - 修复前端引用渲染二次替换导致的 `S1">S1` 问题。
 - 改造 `app/static/`，聊天页取消侧栏和说明文案，以聊天框为中心，推荐问题放进输入区。
 - 更新 `knowledge/sources/source-registry.json`，当前仅启用职业生涯全景档案作为检索来源。
@@ -45,6 +46,7 @@
 - Qwen 分类可用，但比规则分类慢，当前保留规则 fallback。
 - MiniMax 回答已接入，prompt 已按职业档案问答重写，但仍需要用真实访客问题继续打磨检索权重和回答口径。
 - 当前公开问答只支持职业生涯档案，项目 context 和数字化身摘要暂不参与回答。
+- Vercel 上的 SQLite 数据库写在临时目录，适合 MVP 链路验证；要长期保存提问记录、评测报告和后台统计，需要接入持久化数据库。
 
 ## 下一步
 
@@ -56,6 +58,9 @@
 ## 重要文件
 
 - `app/main.py`
+- `api/_handler.py`
+- `vercel.json`
+- `public/index.html`
 - `app/static/index.html`
 - `app/static/admin.html`
 - `knowledge/sources/source-registry.json`

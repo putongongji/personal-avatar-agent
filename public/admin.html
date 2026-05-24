@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Avatar Agent Admin</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <a class="brand" href="/">
+            <strong>后台入口</strong>
+            <span>高频提问、资料缺口和回答质量</span>
+          </a>
+          <nav class="nav">
+            <a href="/">聊天</a>
+            <button id="refresh">刷新</button>
+          </nav>
+        </div>
+      </header>
+
+      <main class="admin-layout">
+        <section class="metrics">
+          <div class="metric"><span>总提问数</span><strong id="total">0</strong></div>
+          <div class="metric"><span>回答成功率</span><strong id="answered">0%</strong></div>
+          <div class="metric"><span>平均质量分</span><strong id="quality">0</strong></div>
+          <div class="metric"><span>资料缺口</span><strong id="missing">0</strong></div>
+        </section>
+
+        <section class="grid-two">
+          <div class="panel">
+            <h2>高频提问</h2>
+            <table class="table">
+              <thead><tr><th>问题</th><th>次数</th></tr></thead>
+              <tbody id="topQuestions"></tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <h2>问题分类</h2>
+            <table class="table">
+              <thead><tr><th>分类</th><th>次数</th></tr></thead>
+              <tbody id="categories"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>评测</h2>
+            <div class="actions">
+              <button id="runEvalSample">跑前 5 条</button>
+              <button id="runEvalAll">跑全部</button>
+            </div>
+          </div>
+          <div class="metrics compact">
+            <div class="metric"><span>Golden Cases</span><strong id="evalTotal">0</strong></div>
+            <div class="metric"><span>已运行</span><strong id="evalRan">0</strong></div>
+            <div class="metric"><span>通过率</span><strong id="evalPassRate">0%</strong></div>
+            <div class="metric"><span>平均分</span><strong id="evalScore">0</strong></div>
+          </div>
+          <p id="evalStatus" class="muted">评测未运行</p>
+          <table class="table eval-table">
+            <thead><tr><th>Case</th><th>问题</th><th>诊断</th><th>维度</th><th>结果</th></tr></thead>
+            <tbody id="evalCases"></tbody>
+          </table>
+        </section>
+
+        <section class="panel">
+          <h2>资料缺口</h2>
+          <table class="table">
+            <thead><tr><th>问题</th><th>分类</th><th>原因</th><th>次数</th></tr></thead>
+            <tbody id="gaps"></tbody>
+          </table>
+        </section>
+
+        <section class="panel">
+          <h2>最近提问</h2>
+          <table class="table">
+            <thead><tr><th>问题</th><th>分类</th><th>分类器</th><th>检索</th><th>回答器</th><th>质量</th><th>耗时</th><th>状态</th></tr></thead>
+            <tbody id="questions"></tbody>
+          </table>
+        </section>
+      </main>
+
+      <div id="evalModal" class="modal hidden" aria-hidden="true">
+        <div class="modal-backdrop" data-modal-close></div>
+        <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="evalModalTitle">
+          <header class="modal-head">
+            <div>
+              <h2 id="evalModalTitle">评测报告</h2>
+              <p id="evalModalSubtitle" class="muted"></p>
+            </div>
+            <button id="evalModalClose" type="button" aria-label="关闭">关闭</button>
+          </header>
+          <div id="evalModalBody" class="modal-body"></div>
+        </section>
+      </div>
+    </div>
+
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

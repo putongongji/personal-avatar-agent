@@ -41,11 +41,33 @@ CLASSIFICATION_MODEL=Qwen/Qwen3.5-4B
 - 聊天页：`http://127.0.0.1:8787/`
 - 后台：`http://127.0.0.1:8787/admin`
 
+## 部署
+
+项目已适配 Vercel：
+
+- `public/`：线上静态聊天页和后台页。
+- `api/`：Vercel Python Functions 入口，复用 `app/main.py` 的 API 处理逻辑。
+- `knowledge/public/career-panorama.md`：线上可检索的公开职业档案副本。
+
+Vercel 环境变量需要在项目设置里配置，不要提交到仓库：
+
+```bash
+MINIMAX_API_KEY=...
+MINIMAX_BASE_URL=https://api.minimax.io/v1
+MINIMAX_MODEL=MiniMax-M2.7
+SILICONFLOW_API_KEY=...
+SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+EMBEDDING_MODEL=BAAI/bge-m3
+CLASSIFICATION_MODEL=Qwen/Qwen3.5-4B
+```
+
+当前线上 SQLite 数据库运行在 Vercel 可写临时目录里，适合 MVP 访问验证；如果要长期保存提问记录、评测报告和后台统计，需要换成持久化数据库。
+
 ## 资料源
 
 资料源登记在 `knowledge/sources/source-registry.json`。当前问答检索只启用职业生涯全景档案：
 
-- 职业事实档案
+- `knowledge/public/career-panorama.md`
 
 `shadow.md`、日记、隐私信息和密钥文件不进入公开问答。
 

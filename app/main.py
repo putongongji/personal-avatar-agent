@@ -22,9 +22,14 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
-DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR = (
+    Path(os.environ.get("PAA_DATA_DIR", "/tmp/personal-avatar-agent"))
+    if os.environ.get("VERCEL")
+    else PROJECT_ROOT / "data"
+)
 DB_PATH = DATA_DIR / "avatar_agent.sqlite3"
 EMBEDDING_CACHE_PATH = DATA_DIR / "embeddings.json"
+SEED_EMBEDDING_CACHE_PATH = PROJECT_ROOT / "knowledge" / "generated" / "embeddings-bge-m3.json"
 SOURCE_REGISTRY_PATH = PROJECT_ROOT / "knowledge" / "sources" / "source-registry.json"
 ENV_PATH = PROJECT_ROOT / ".env"
 
@@ -103,8 +108,12 @@ def load_local_env() -> None:
             os.environ[key] = value
 
 
+def env_value(key: str, default: str = "") -> str:
+    return os.environ.get(key, default).strip()
+
+
 def selected_llm_provider() -> str:
-    return "minimax" if os.environ.get("MINIMAX_API_KEY") else "local"
+    return "minimax" if env_value("MINIMAX_API_KEY") else "local"
 
 
 def embedding_configured() -> bool:
@@ -113,29 +122,29 @@ def embedding_configured() -> bool:
 
 def embedding_api_key() -> str:
     return (
-        os.environ.get("SILICONFLOW_API_KEY")
-        or os.environ.get("api_key")
+        env_value("SILICONFLOW_API_KEY")
+        or env_value("api_key")
         or ""
     )
 
 
 def embedding_model() -> str:
-    return os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
+    return env_value("EMBEDDING_MODEL", "BAAI/bge-m3")
 
 
 def embedding_base_url() -> str:
-    return os.environ.get(
+    return env_value(
         "SILICONFLOW_BASE_URL",
-        os.environ.get("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1"),
+        env_value("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1"),
     ).rstrip("/")
 
 
 def siliconflow_base_url() -> str:
-    return os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1").rstrip("/")
+    return env_value("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1").rstrip("/")
 
 
 def classification_model() -> str:
-    return os.environ.get("CLASSIFICATION_MODEL", "Qwen/Qwen3.5-4B")
+    return env_value("CLASSIFICATION_MODEL", "Qwen/Qwen3.5-4B")
 
 
 def sanitize_error(message: str) -> str:
@@ -267,6 +276,12 @@ def normalize_path(path_value: str) -> Path:
     return path
 
 
+def source_path_for(source: dict[str, Any]) -> Path:
+    if source.get("id") == CAREER_SOURCE_ID and env_value("CAREER_ARCHIVE_PATH"):
+        return normalize_path(env_value("CAREER_ARCHIVE_PATH"))
+    return normalize_path(source["path"])
+
+
 def split_markdown(text: str, source: dict[str, Any]) -> list[dict[str, Any]]:
     chunks: list[dict[str, Any]] = []
     heading_stack: list[str] = []
@@ -313,7 +328,7 @@ def is_meaningful_chunk(content: str) -> bool:
 
 def build_chunk(content: str, source: dict[str, Any], heading_stack: list[str]) -> dict[str, Any]:
     heading_path = " > ".join(heading_stack) if heading_stack else source["title"]
-    source_path = normalize_path(source["path"])
+    source_path = source_path_for(source)
     digest = hashlib.sha256(f"{source['id']}\n{heading_path}\n{content}".encode("utf-8")).hexdigest()
     parent_heading = heading_stack[1] if len(heading_stack) > 1 else (heading_stack[0] if heading_stack else source["title"])
     section_title = heading_stack[-1] if heading_stack else source["title"]
@@ -360,12 +375,25 @@ def build_index() -> list[dict[str, Any]]:
     for source in load_registry():
         if source.get("id") != CAREER_SOURCE_ID:
             continue
-        path = normalize_path(source["path"])
-        if not path.exists() or path.suffix.lower() not in {".md", ".txt"}:
+        path = source_path_for(source)
+        if path.exists() and path.suffix.lower() in {".md", ".txt"}:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        elif source.get("id") == CAREER_SOURCE_ID:
+            text = bundled_career_archive()
+        else:
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        if not text:
+            continue
         chunks.extend(split_markdown(text, source))
     return chunks
+
+
+def bundled_career_archive() -> str:
+    try:
+        from app.bundled_knowledge import CAREER_PANORAMA_MD
+    except Exception:
+        return ""
+    return CAREER_PANORAMA_MD
 
 
 INDEX: list[dict[str, Any]] = []
@@ -388,10 +416,11 @@ def indexed_embedding_count() -> int:
 
 
 def load_embedding_cache() -> dict[str, list[float]]:
-    if not EMBEDDING_CACHE_PATH.exists():
+    cache_path = EMBEDDING_CACHE_PATH if EMBEDDING_CACHE_PATH.exists() else SEED_EMBEDDING_CACHE_PATH
+    if not cache_path.exists():
         return {}
     try:
-        data = json.loads(EMBEDDING_CACHE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
     if data.get("model") != embedding_model():
@@ -902,7 +931,7 @@ def generate_llm_answer(question: str, category: str, chunks: list[dict[str, Any
     if provider == "local":
         return "", "local_template"
     prompt = build_llm_user_prompt(question, category, chunks)
-    model = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.7")
+    model = env_value("MINIMAX_MODEL", "MiniMax-M2.7")
     return strip_thinking(call_minimax(prompt)), f"minimax:{model}"
 
 
@@ -971,11 +1000,11 @@ def build_llm_user_prompt(
 
 
 def call_minimax(prompt: str, system_prompt: str = AVATAR_SYSTEM_PROMPT) -> str:
-    api_key = os.environ.get("MINIMAX_API_KEY")
+    api_key = env_value("MINIMAX_API_KEY")
     if not api_key:
         return ""
-    model = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.7")
-    base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1").rstrip("/")
+    model = env_value("MINIMAX_MODEL", "MiniMax-M2.7")
+    base_url = env_value("MINIMAX_BASE_URL", "https://api.minimax.io/v1").rstrip("/")
     payload = {
         "model": model,
         "messages": [
@@ -1001,11 +1030,11 @@ def call_minimax(prompt: str, system_prompt: str = AVATAR_SYSTEM_PROMPT) -> str:
 
 
 def stream_minimax(prompt: str, system_prompt: str = AVATAR_SYSTEM_PROMPT) -> tuple[str, Any]:
-    api_key = os.environ.get("MINIMAX_API_KEY")
+    api_key = env_value("MINIMAX_API_KEY")
     if not api_key:
         return "local_template", iter(())
-    model = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.7")
-    base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1").rstrip("/")
+    model = env_value("MINIMAX_MODEL", "MiniMax-M2.7")
+    base_url = env_value("MINIMAX_BASE_URL", "https://api.minimax.io/v1").rstrip("/")
     payload = {
         "model": model,
         "messages": [
@@ -1363,7 +1392,7 @@ def generate_answer_for_stream(question: str, category: str, chunks: list[dict[s
         return generate_answer(question, category, chunks)
 
     prompt = build_llm_user_prompt(question, category, chunks)
-    provider_label = f"minimax:{os.environ.get('MINIMAX_MODEL', 'MiniMax-M2.7')}"
+    provider_label = f"minimax:{env_value('MINIMAX_MODEL', 'MiniMax-M2.7')}"
     try:
         collected = []
         for delta in stream_minimax(prompt)[1]:
@@ -2103,8 +2132,8 @@ def sources() -> dict[str, Any]:
 def llm_status() -> dict[str, Any]:
     return {
         "provider": selected_llm_provider(),
-        "minimax_configured": bool(os.environ.get("MINIMAX_API_KEY")),
-        "minimax_model": os.environ.get("MINIMAX_MODEL", "MiniMax-M2.7"),
+        "minimax_configured": bool(env_value("MINIMAX_API_KEY")),
+        "minimax_model": env_value("MINIMAX_MODEL", "MiniMax-M2.7"),
         "embedding_provider": "siliconflow" if embedding_configured() else "none",
         "embedding_configured": embedding_configured(),
         "embedding_ready": EMBEDDING_READY,
