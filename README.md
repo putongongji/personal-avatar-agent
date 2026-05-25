@@ -31,8 +31,11 @@ MINIMAX_MODEL=MiniMax-M2.7
 SILICONFLOW_API_KEY=...
 SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
 EMBEDDING_MODEL=BAAI/bge-m3
-CLASSIFICATION_MODEL=Qwen/Qwen3.5-4B
+CLASSIFICATION_MODEL=Qwen/Qwen3-8B
+CLASSIFICATION_FALLBACK_MODELS=Qwen/Qwen2.5-7B-Instruct
 ```
+
+`Qwen/Qwen3.5-4B` 在当前 SiliconFlow chat completions 调用中会出现读超时，线上分类默认改用已验证可稳定返回 JSON 的 `Qwen/Qwen3-8B`。
 
 `SILICONFLOW_API_KEY` 使用硅基流动 API key；如果认证失败，系统会保留关键词检索兜底，并在 `/api/llm/status` 暴露 embedding 错误状态。
 

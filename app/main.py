@@ -39,7 +39,7 @@ LLM_TIMEOUT_SECONDS = 45
 EMBEDDING_TIMEOUT_SECONDS = 90
 CAREER_SOURCE_ID = "career_panorama"
 DEFAULT_RETRIEVAL_LIMIT = 6
-CLASSIFICATION_TIMEOUT_SECONDS = 30
+CLASSIFICATION_TIMEOUT_SECONDS = 8
 CLASSIFICATION_CATEGORIES = {
     "career_experience",
     "project_case",
@@ -144,7 +144,13 @@ def siliconflow_base_url() -> str:
 
 
 def classification_model() -> str:
-    return env_value("CLASSIFICATION_MODEL", "Qwen/Qwen3.5-4B")
+    return env_value("CLASSIFICATION_MODEL", "Qwen/Qwen3-8B")
+
+
+def classification_fallback_models() -> list[str]:
+    configured = env_value("CLASSIFICATION_FALLBACK_MODELS", "Qwen/Qwen3-8B,Qwen/Qwen2.5-7B-Instruct")
+    models = [item.strip() for item in configured.split(",") if item.strip()]
+    return [model for model in models if model != classification_model()]
 
 
 def sanitize_error(message: str) -> str:
@@ -534,29 +540,44 @@ def classify_question_with_llm(question: str, history: list[dict[str, Any]] | No
             "provider": "rule_fallback",
         }
     prompt = build_classification_prompt(question, history or [])
-    try:
-        content = call_siliconflow_chat(prompt, classification_model(), max_tokens=360, temperature=0)
-        parsed = parse_json_object(content)
-        category = str(parsed.get("category", fallback_category)).strip()
-        if category not in CLASSIFICATION_CATEGORIES:
-            category = fallback_category
-        if category == "general" and fallback_category != "general":
-            category = fallback_category
-        rewritten = str(parsed.get("rewritten_question", question)).strip() or question
-        reason = str(parsed.get("reason", "")).strip()[:300]
-        return {
-            "category": category,
-            "rewritten_question": rewritten[:800],
-            "reason": reason,
-            "provider": f"siliconflow:{classification_model()}",
-        }
-    except Exception as exc:
-        return {
-            "category": fallback_category,
-            "rewritten_question": question,
-            "reason": f"LLM 分类失败，使用规则分类：{sanitize_error(str(exc))}",
-            "provider": "rule_fallback",
-        }
+    errors: list[str] = []
+    for model in [classification_model(), *classification_fallback_models()]:
+        try:
+            content = call_siliconflow_chat(
+                prompt,
+                model,
+                max_tokens=360,
+                temperature=0,
+                timeout=CLASSIFICATION_TIMEOUT_SECONDS,
+            )
+            if not content:
+                raise RuntimeError("SiliconFlow returned empty classification response")
+            parsed = parse_json_object(content)
+            category = str(parsed.get("category", fallback_category)).strip()
+            if category not in CLASSIFICATION_CATEGORIES:
+                category = fallback_category
+            if category == "general" and fallback_category != "general":
+                category = fallback_category
+            rewritten = str(parsed.get("rewritten_question", question)).strip() or question
+            reason = str(parsed.get("reason", "")).strip()[:300]
+            if errors:
+                reason = (reason + f"；备用模型接管，主模型错误：{errors[0]}").strip("；")[:300]
+            return {
+                "category": category,
+                "rewritten_question": rewritten[:800],
+                "reason": reason,
+                "provider": f"siliconflow:{model}",
+            }
+        except Exception as exc:
+            errors.append(f"{model}: {sanitize_error(str(exc))}")
+
+    detail = "；".join(errors[:2]) if errors else "未知错误"
+    return {
+        "category": fallback_category,
+        "rewritten_question": question,
+        "reason": f"LLM 分类失败，使用规则分类：{sanitize_error(detail)}",
+        "provider": "rule_fallback",
+    }
 
 
 def build_classification_prompt(question: str, history: list[dict[str, Any]]) -> str:
@@ -1092,7 +1113,12 @@ def stream_chat_completions(url: str, payload: dict[str, Any], headers: dict[str
         raise RuntimeError(f"LLM network error: {exc.reason}") from exc
 
 
-def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+def post_json(
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    timeout: int = LLM_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -1101,7 +1127,7 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dic
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=LLM_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
@@ -1143,7 +1169,13 @@ def call_embedding_api(texts: list[str]) -> list[list[float]]:
     return [[float(value) for value in vector] for vector in vectors]
 
 
-def call_siliconflow_chat(prompt: str, model: str, max_tokens: int = 512, temperature: float = 0) -> str:
+def call_siliconflow_chat(
+    prompt: str,
+    model: str,
+    max_tokens: int = 512,
+    temperature: float = 0,
+    timeout: int = LLM_TIMEOUT_SECONDS,
+) -> str:
     api_key = embedding_api_key()
     if not api_key:
         return ""
@@ -1158,6 +1190,7 @@ def call_siliconflow_chat(prompt: str, model: str, max_tokens: int = 512, temper
         f"{siliconflow_base_url()}/chat/completions",
         payload,
         {"Authorization": f"Bearer {api_key}"},
+        timeout=timeout,
     )
     choices = data.get("choices", [])
     if not choices:
@@ -2140,6 +2173,8 @@ def llm_status() -> dict[str, Any]:
         "embedding_model": embedding_model(),
         "embedding_base_url": embedding_base_url(),
         "embedding_error": EMBEDDING_LAST_ERROR,
+        "classification_model": classification_model(),
+        "classification_fallback_models": classification_fallback_models(),
     }
 
 

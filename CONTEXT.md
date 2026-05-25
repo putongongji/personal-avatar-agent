@@ -25,7 +25,7 @@
 - 将职业问答系统约束移入 MiniMax system message，user message 只放当前问题和检索片段。
 - 将向量召回切换为硅基流动，使用 `https://api.siliconflow.cn/v1/embeddings` 和 `BAAI/bge-m3`；embedding 成功时优先向量检索，失败时保留关键词检索兜底。
 - 修正检索进度文案：不再把固定 Top 6 说成“找到 6 条相关依据”，改为显示已排序候选片段数量和选入回答上下文的条数。
-- 接入硅基流动 `Qwen/Qwen3.5-4B` 做问题分类和检索问题改写，失败时回退到规则分类。
+- 接入硅基流动 Qwen 做问题分类和检索问题改写；`Qwen/Qwen3.5-4B` 实测会读超时，线上默认改用 `Qwen/Qwen3-8B`，并保留 `Qwen/Qwen2.5-7B-Instruct` 与规则分类 fallback。
 - 新增 `conversations`、`messages`、`eval_cases` 表，支持多轮对话、聊天状态恢复、golden set / bad case 数据沉淀。
 - 改进职业档案 chunk：跳过只有标题的空 chunk，增加父级产品线、小节类型、个人实践、待核实等元数据，并在检索排序中使用这些元数据。
 - 新增 `docs/rag-strategy.md`，记录面向职业问答的 chunk、检索、召回、多轮和评测策略。
@@ -43,7 +43,7 @@
 ## 当前卡点
 
 - embedding 代码已按硅基流动接口接入，本地单条调用已验证可返回 1024 维向量。
-- Qwen 分类可用，但比规则分类慢，当前保留规则 fallback。
+- Qwen 分类可用；线上使用 `Qwen/Qwen3-8B`，当前保留备用模型和规则 fallback。
 - MiniMax 回答已接入，prompt 已按职业档案问答重写，但仍需要用真实访客问题继续打磨检索权重和回答口径。
 - 当前公开问答只支持职业生涯档案，项目 context 和数字化身摘要暂不参与回答。
 - Vercel 上的 SQLite 数据库写在临时目录，适合 MVP 链路验证；要长期保存提问记录、评测报告和后台统计，需要接入持久化数据库。
