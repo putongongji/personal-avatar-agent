@@ -2601,8 +2601,8 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
 
-        self.send_progress("问题已进入处理")
-        self.send_progress(f"正在用 {classification_model()} 判断问题类型")
+        self.send_progress("理解问题")
+        self.send_progress("识别意图")
         classification = classify_question_with_llm(question, history)
         category = classification["category"]
         rewritten_question = classification["rewritten_question"]
@@ -2614,17 +2614,13 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
             category,
             metadata={"rewritten_question": rewritten_question, "classification": classification},
         )
-        self.send_progress(f"问题方向：{category}")
-        if classification.get("reason"):
-            self.send_progress(f"判断依据：{classification['reason']}")
-        if rewritten_question != question:
-            self.send_progress(f"已结合上下文改写检索问题：{rewritten_question}")
+        self.send_progress("确定回答范围")
 
         if category == "unrelated":
             answer, missing_info, was_answered, answer_provider = generate_answer(question, category, [])
             sources: list[dict[str, Any]] = []
             retrieval_stats = {"index_count": len(INDEX), "candidate_count": 0, "returned_count": 0, "method": "none"}
-            self.send_progress("问题不属于职业档案问答范围，已拒绝回答")
+            self.send_progress("生成边界说明")
             for part in chunk_text(answer):
                 self.send_stream_event({"type": "delta", "text": part})
             quality_score = evaluate_quality(answer, sources, was_answered, missing_info)
@@ -2682,25 +2678,16 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
             return
 
         if EMBEDDING_READY:
-            self.send_progress("正在用向量 embedding 检索职业生涯档案")
+            self.send_progress("检索向量资料库")
         else:
-            self.send_progress("正在用本地关键词检索职业生涯档案")
+            self.send_progress("检索职业资料")
         chunks, retrieval_stats = retrieve_with_stats(rewritten_question, category)
         sources = build_sources(chunks, rewritten_question)
         if sources:
-            headings = [source["heading"] for source in sources[:3]]
-            method = "向量检索" if sources[0].get("retrieval_method") == "vector" else "关键词检索"
-            self.send_progress(
-                (
-                    f"职业生涯档案{method}完成："
-                    f"已排序 {retrieval_stats['candidate_count']} 个候选片段，"
-                    f"选出前 {retrieval_stats['returned_count']} 条作为回答上下文"
-                ),
-                headings,
-            )
+            self.send_progress("筛选相关依据")
             self.send_stream_event({"type": "sources", "sources": sources})
         else:
-            self.send_progress("职业生涯档案检索完成：没有找到足够依据")
+            self.send_progress("确认资料边界")
 
         answer = ""
         missing_info = ""
@@ -2709,7 +2696,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
 
         if category == "risk_boundary" or not chunks or (chunks and chunks[0]["score"] < MIN_SCORE):
             answer, missing_info, was_answered, answer_provider = generate_answer(question, category, chunks)
-            self.send_progress("资料边界判断完成，开始生成说明")
+            self.send_progress("生成边界说明")
             for part in chunk_text(answer):
                 self.send_stream_event({"type": "delta", "text": part})
         else:
@@ -2717,7 +2704,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
                 provider = selected_llm_provider()
                 if provider == "minimax":
                     prompt = build_llm_user_prompt(question, category, chunks, history, rewritten_question)
-                    self.send_progress("已基于检索结果构造回答上下文，开始调用模型")
+                    self.send_progress("组织回答")
                     answer_provider, deltas = stream_minimax(prompt)
                     raw_answer = ""
                     sent_length = 0
@@ -2731,7 +2718,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
                     answer = strip_thinking(raw_answer)
                 else:
                     answer, missing_info, was_answered, answer_provider = generate_answer(question, category, chunks)
-                    self.send_progress("已基于检索结果构造回答上下文，开始生成回答")
+                    self.send_progress("组织回答")
                     for part in chunk_text(answer):
                         self.send_stream_event({"type": "delta", "text": part})
                 if not answer:
@@ -2741,7 +2728,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
                 missing_info = f"LLM 调用失败：{safe_error}"
                 answer_provider = "local_template_fallback"
                 answer = generate_template_answer(question, category, chunks) + f"\n\n系统备注：LLM 调用失败，已回退到本地资料摘要。错误：{safe_error}"
-                self.send_progress("模型生成失败，已切换到本地资料摘要")
+                self.send_progress("切换备用回答方式")
                 for part in chunk_text(answer):
                     self.send_stream_event({"type": "delta", "text": part})
 
@@ -2782,7 +2769,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
             len(history) // 2 + 1,
             int((time.time() - started) * 1000),
         )
-        self.send_progress("回答已记录，来源和后续问题已整理")
+        self.send_progress("整理来源")
         self.send_stream_event(
             {
                 "type": "done",

@@ -277,6 +277,12 @@ button.primary {
   min-width: 64px;
 }
 
+button.primary.stop {
+  background: #ffffff;
+  border-color: #c8ccd2;
+  color: var(--ink);
+}
+
 button.secondary {
   background: var(--panel);
   color: var(--ink);
@@ -479,7 +485,7 @@ textarea {
   max-width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.58);
   overflow: hidden;
 }
 
@@ -495,6 +501,10 @@ textarea {
   list-style: none;
 }
 
+.trace-panel.running summary span:nth-child(2) {
+  animation: traceTextBreath 1.4s ease-in-out infinite;
+}
+
 .trace-panel summary::-webkit-details-marker {
   display: none;
 }
@@ -505,8 +515,8 @@ textarea {
 }
 
 .trace-spinner {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 0 rgba(17, 24, 39, 0.26);
@@ -523,7 +533,7 @@ textarea {
 
 .trace-list {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   padding: 0 10px 10px 26px;
 }
 
@@ -534,14 +544,8 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-.trace-item ul {
-  margin: 5px 0 0;
-  padding-left: 16px;
-}
-
-.trace-item li {
-  margin: 2px 0;
-  overflow-wrap: anywhere;
+.trace-item.active {
+  color: var(--ink);
 }
 
 @keyframes tracePulse {
@@ -555,6 +559,16 @@ textarea {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(17, 24, 39, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes traceTextBreath {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
     opacity: 1;
   }
 }

@@ -14,6 +14,8 @@ let conversationId = localStorage.getItem(conversationStorageKey) || "";
 let isStreaming = false;
 let shouldFollowOutput = true;
 let currentUser = null;
+let currentAbortController = null;
+let stopRequested = false;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -32,7 +34,7 @@ function scrollToLatest(force = false) {
 
 function updateFollowState() {
   const distance = messages.scrollHeight - messages.scrollTop - messages.clientHeight;
-  shouldFollowOutput = distance < 96 || isStreaming;
+  shouldFollowOutput = distance < 96;
 }
 
 function resizeInput() {
@@ -156,21 +158,21 @@ function renderTrace(node, items, state = "running") {
     node.innerHTML = "";
     return;
   }
-  const label = state === "done" ? "执行过程" : "正在处理";
+  const current = items.at(-1)?.message || "正在处理";
+  const label = state === "done" ? "执行过程" : current;
   const detailsOpen = state !== "done" ? "open" : "";
   node.innerHTML = `
     <details class="trace-panel ${state}" ${detailsOpen}>
       <summary>
         <span class="trace-spinner"></span>
         <span>${label}</span>
-        <small>${items.length} 步</small>
+        <small>${state === "done" ? "完成" : "进行中"}</small>
       </summary>
       <div class="trace-list">
         ${items
           .map(
-            (item) => `<div class="trace-item">
+            (item, index) => `<div class="trace-item ${state !== "done" && index === items.length - 1 ? "active" : ""}">
               <span>${escapeHtml(item.message)}</span>
-              ${item.items?.length ? `<ul>${item.items.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}</ul>` : ""}
             </div>`
           )
           .join("")}
@@ -191,9 +193,12 @@ async function ask(question) {
   input.value = "";
   resizeInput();
   suggestions.innerHTML = "";
-  sendButton.disabled = true;
-  sendButton.textContent = "回答中";
+  sendButton.disabled = false;
+  sendButton.textContent = "停止";
+  sendButton.classList.add("stop");
   isStreaming = true;
+  stopRequested = false;
+  currentAbortController = new AbortController();
   shouldFollowOutput = true;
 
   const assistant = createMessage("assistant", "Agent");
@@ -211,7 +216,9 @@ async function ask(question) {
 
   function enqueueProgress(message, items = []) {
     progressChain = progressChain.then(async () => {
-      trace.push({ message, items });
+      if (trace.at(-1)?.message !== message) {
+        trace.push({ message, items });
+      }
       renderTrace(assistant.progressNode, trace, "running");
       scrollToLatest();
       await sleep(360);
@@ -236,6 +243,7 @@ async function ask(question) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question: text, user_type: "public", conversation_id: conversationId }),
+      signal: currentAbortController.signal,
     });
     if (!response.ok || !response.body) {
       const data = await response.json().catch(() => ({}));
@@ -280,22 +288,43 @@ async function ask(question) {
           renderTrace(assistant.progressNode, trace, "done");
           renderSuggestions(event.suggestions || []);
           await loadConversations();
-          scrollToLatest(true);
+          scrollToLatest();
         }
       }
     }
   } catch (error) {
-    assistant.progressNode.innerHTML = "";
-    assistant.body.textContent = `请求失败：${error.message}`;
+    if (error.name === "AbortError" || stopRequested) {
+      await progressChain;
+      await typeChain;
+      if (trace.length) renderTrace(assistant.progressNode, trace, "done");
+      assistant.metaNode.textContent = "Agent · 已停止";
+      if (!displayedAnswer.trim()) {
+        assistant.body.textContent = "已停止回答。";
+      }
+    } else {
+      assistant.progressNode.innerHTML = "";
+      assistant.body.textContent = `请求失败：${error.message}`;
+    }
   } finally {
     await progressChain;
     await typeChain;
     isStreaming = false;
+    stopRequested = false;
+    currentAbortController = null;
     sendButton.disabled = false;
     sendButton.textContent = "发送";
+    sendButton.classList.remove("stop");
     input.focus();
-    scrollToLatest(true);
+    scrollToLatest();
   }
+}
+
+function stopAnswer() {
+  if (!isStreaming || !currentAbortController) return;
+  stopRequested = true;
+  sendButton.disabled = true;
+  sendButton.textContent = "停止中";
+  currentAbortController.abort();
 }
 
 function renderSuggestions(questions) {
@@ -415,6 +444,10 @@ async function restoreConversation() {
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (isStreaming) {
+    stopAnswer();
+    return;
+  }
   ask(input.value);
 });
 
@@ -422,6 +455,10 @@ input.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   if (event.shiftKey) return;
   event.preventDefault();
+  if (isStreaming) {
+    stopAnswer();
+    return;
+  }
   ask(input.value);
 });
 
