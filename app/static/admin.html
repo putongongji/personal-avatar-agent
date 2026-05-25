@@ -16,6 +16,7 @@
           </a>
           <nav class="nav">
             <a href="/">聊天</a>
+            <button id="logout">退出</button>
             <button id="refresh">刷新</button>
           </nav>
         </div>
@@ -76,9 +77,17 @@
         </section>
 
         <section class="panel">
+          <h2>用户数据</h2>
+          <table class="table">
+            <thead><tr><th>用户</th><th>角色</th><th>邮箱 / 账号</th><th>提问</th><th>对话</th><th>平均质量</th><th>最近访问</th></tr></thead>
+            <tbody id="users"></tbody>
+          </table>
+        </section>
+
+        <section class="panel">
           <h2>最近提问</h2>
           <table class="table">
-            <thead><tr><th>问题</th><th>分类</th><th>分类器</th><th>检索</th><th>回答器</th><th>质量</th><th>耗时</th><th>状态</th></tr></thead>
+            <thead><tr><th>用户</th><th>问题</th><th>分类</th><th>分类器</th><th>检索</th><th>回答器</th><th>质量</th><th>耗时</th><th>状态</th></tr></thead>
             <tbody id="questions"></tbody>
           </table>
         </section>

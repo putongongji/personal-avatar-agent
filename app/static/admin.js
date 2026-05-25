@@ -1,4 +1,5 @@
 const refreshButton = document.querySelector("#refresh");
+const logoutButton = document.querySelector("#logout");
 const runEvalSampleButton = document.querySelector("#runEvalSample");
 const runEvalAllButton = document.querySelector("#runEvalAll");
 const evalStatus = document.querySelector("#evalStatus");
@@ -89,16 +90,22 @@ function renderSimpleMarkdown(markdown) {
 }
 
 async function loadAdmin() {
-  const [summaryResponse, questionsResponse, gapsResponse, evalsResponse] = await Promise.all([
+  const [summaryResponse, questionsResponse, gapsResponse, evalsResponse, usersResponse] = await Promise.all([
     fetch("/api/admin/summary"),
     fetch("/api/admin/questions"),
     fetch("/api/admin/gaps"),
     fetch("/api/admin/evals"),
+    fetch("/api/admin/users"),
   ]);
+  if ([summaryResponse, questionsResponse, gapsResponse, evalsResponse, usersResponse].some((response) => response.status === 401)) {
+    window.location.href = "/login?next=/admin";
+    return;
+  }
   const summary = await summaryResponse.json();
   const questions = await questionsResponse.json();
   const gaps = await gapsResponse.json();
   const evals = await evalsResponse.json();
+  const users = await usersResponse.json();
   evalCasesCache = evals.cases || [];
 
   setText("total", summary.total_questions);
@@ -132,8 +139,22 @@ async function loadAdmin() {
     "暂时没有资料缺口"
   );
   fillRows(
+    "users",
+    (users.users || []).map((user) => [
+      `<strong>${escapeHtml(user.display_name || user.id)}</strong><span class="muted">${escapeHtml(user.id)}</span>`,
+      `<span class="tag">${escapeHtml(user.role)}</span>`,
+      escapeHtml(user.email || "-"),
+      user.question_count || 0,
+      user.conversation_count || 0,
+      Math.round(user.avg_quality || 0),
+      escapeHtml(user.last_seen_at || "-"),
+    ]),
+    "还没有用户数据"
+  );
+  fillRows(
     "questions",
     questions.questions.map((question) => [
+      `<strong>${escapeHtml(question.user_display_name || "-")}</strong><span class="muted">${escapeHtml(question.user_role || question.user_type || "")}</span>`,
       `<div class="question-row"><strong>${escapeHtml(question.question)}</strong><span class="muted">${escapeHtml(question.created_at)}</span></div>`,
       `<span class="tag">${escapeHtml(question.category)}</span>`,
       escapeHtml(question.classification_provider || "unknown"),
@@ -337,6 +358,10 @@ async function runEval(limit) {
 }
 
 refreshButton.addEventListener("click", loadAdmin);
+logoutButton.addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  window.location.href = "/login?next=/admin";
+});
 runEvalSampleButton.addEventListener("click", () => runEval(5));
 runEvalAllButton.addEventListener("click", () => runEval(0));
 evalModalClose.addEventListener("click", closeEvalModal);

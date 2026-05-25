@@ -5,11 +5,15 @@ const sendButton = document.querySelector("#send");
 const suggestions = document.querySelector("#suggestions");
 const conversationList = document.querySelector("#conversationList");
 const newConversationButton = document.querySelector("#newConversation");
+const userBadge = document.querySelector("#userBadge");
+const adminLink = document.querySelector("#adminLink");
+const logoutButton = document.querySelector("#logout");
 const conversationStorageKey = "personal-avatar-agent:conversation-id";
 
 let conversationId = localStorage.getItem(conversationStorageKey) || "";
 let isStreaming = false;
 let shouldFollowOutput = true;
+let currentUser = null;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -311,6 +315,25 @@ async function loadSuggestions() {
   renderSuggestions(data.questions || []);
 }
 
+async function loadMe() {
+  const response = await fetch("/api/me");
+  const data = await response.json();
+  if (!data.user) {
+    window.location.href = "/login";
+    return null;
+  }
+  currentUser = data.user;
+  userBadge.innerHTML = `<strong>${escapeHtml(currentUser.display_name || "访客")}</strong><span>${escapeHtml(currentUser.email || currentUser.id)}</span>`;
+  adminLink.classList.toggle("hidden", currentUser.role !== "admin");
+  return currentUser;
+}
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  localStorage.removeItem(conversationStorageKey);
+  window.location.href = "/login";
+}
+
 function startNewConversation() {
   conversationId = "";
   localStorage.removeItem(conversationStorageKey);
@@ -329,6 +352,10 @@ function markActiveConversation() {
 
 async function loadConversations() {
   const response = await fetch("/api/conversations");
+  if (response.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
   if (!response.ok) return;
   const data = await response.json();
   const conversations = data.conversations || [];
@@ -401,8 +428,11 @@ input.addEventListener("keydown", (event) => {
 input.addEventListener("input", resizeInput);
 messages.addEventListener("scroll", updateFollowState);
 newConversationButton.addEventListener("click", startNewConversation);
+logoutButton.addEventListener("click", logout);
 
 (async function init() {
+  const user = await loadMe();
+  if (!user) return;
   await loadConversations();
   const restored = await restoreConversation();
   if (!restored) {

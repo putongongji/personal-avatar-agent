@@ -33,6 +33,8 @@ SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
 EMBEDDING_MODEL=BAAI/bge-m3
 CLASSIFICATION_MODEL=Qwen/Qwen3-8B
 CLASSIFICATION_FALLBACK_MODELS=Qwen/Qwen2.5-7B-Instruct
+ADMIN_EMAIL=...
+ADMIN_PASSWORD=...
 ```
 
 `Qwen/Qwen3.5-4B` 在当前 SiliconFlow chat completions 调用中会出现读超时，线上分类默认改用已验证可稳定返回 JSON 的 `Qwen/Qwen3-8B`。
@@ -43,6 +45,8 @@ CLASSIFICATION_FALLBACK_MODELS=Qwen/Qwen2.5-7B-Instruct
 
 - 聊天页：`http://127.0.0.1:8787/`
 - 后台：`http://127.0.0.1:8787/admin`
+
+访问聊天页前需要选择身份：访客可一键进入并自动生成访客账号；管理员需要用 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 登录，只有管理员能访问后台。
 
 ## 部署
 

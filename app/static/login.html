@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Avatar Agent Login</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="auth-shell">
+      <section class="auth-panel">
+        <div class="brand auth-brand">
+          <strong>Personal Avatar Agent</strong>
+          <span>选择身份后开始对话</span>
+        </div>
+
+        <button id="visitorLogin" class="primary visitor-login" type="button">访客进入</button>
+        <p id="visitorHint" class="muted">系统会自动生成一个访客账号，并保存该访客的对话记录。</p>
+
+        <form id="adminLogin" class="admin-login">
+          <label>
+            管理员账号
+            <input id="adminEmail" name="email" type="email" autocomplete="username" required />
+          </label>
+          <label>
+            管理员密码
+            <input id="adminPassword" name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <button type="submit">管理员登录</button>
+        </form>
+        <p id="authError" class="auth-error" role="alert"></p>
+      </section>
+    </main>
+
+    <script src="/static/login.js"></script>
+  </body>
+</html>

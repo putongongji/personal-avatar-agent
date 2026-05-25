@@ -11,8 +11,10 @@ import re
 import sqlite3
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
+from http.cookies import SimpleCookie
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import Counter
@@ -23,7 +25,9 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
 DATA_DIR = (
-    Path(os.environ.get("PAA_DATA_DIR", "/tmp/personal-avatar-agent"))
+    Path(os.environ["PAA_DATA_DIR"])
+    if os.environ.get("PAA_DATA_DIR")
+    else Path("/tmp/personal-avatar-agent")
     if os.environ.get("VERCEL")
     else PROJECT_ROOT / "data"
 )
@@ -32,6 +36,8 @@ EMBEDDING_CACHE_PATH = DATA_DIR / "embeddings.json"
 SEED_EMBEDDING_CACHE_PATH = PROJECT_ROOT / "knowledge" / "generated" / "embeddings-bge-m3.json"
 SOURCE_REGISTRY_PATH = PROJECT_ROOT / "knowledge" / "sources" / "source-registry.json"
 ENV_PATH = PROJECT_ROOT / ".env"
+SESSION_COOKIE_NAME = "paa_session"
+SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
 
 MAX_CHUNK_CHARS = 1300
 MIN_SCORE = 1.8
@@ -112,6 +118,14 @@ def env_value(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
 
 
+def admin_email() -> str:
+    return env_value("ADMIN_EMAIL", "li-ten@foxmali.com").lower()
+
+
+def admin_password() -> str:
+    return env_value("ADMIN_PASSWORD")
+
+
 def selected_llm_provider() -> str:
     return "minimax" if env_value("MINIMAX_API_KEY") else "local"
 
@@ -175,6 +189,30 @@ def remove_thinking_for_stream(text: str) -> str:
 def init_db() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL DEFAULT '',
+                display_name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS conversations (
@@ -250,6 +288,9 @@ def init_db() -> None:
         )
         columns = {row[1] for row in conn.execute("PRAGMA table_info(questions)").fetchall()}
         question_columns = {
+            "user_id": "TEXT NOT NULL DEFAULT ''",
+            "user_display_name": "TEXT NOT NULL DEFAULT ''",
+            "user_role": "TEXT NOT NULL DEFAULT ''",
             "answer_provider": "TEXT NOT NULL DEFAULT 'local_template'",
             "conversation_id": "TEXT NOT NULL DEFAULT ''",
             "message_id": "INTEGER NOT NULL DEFAULT 0",
@@ -265,6 +306,12 @@ def init_db() -> None:
         for column, definition in question_columns.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE questions ADD COLUMN {column} {definition}")
+        conversation_columns = {row[1] for row in conn.execute("PRAGMA table_info(conversations)").fetchall()}
+        if "user_id" not in conversation_columns:
+            conn.execute("ALTER TABLE conversations ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
+        message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "user_id" not in message_columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
         conn.commit()
 
 
@@ -1225,12 +1272,112 @@ def evaluate_quality(answer: str, sources: list[dict[str, Any]], was_answered: i
     return max(0.0, min(100.0, score))
 
 
-def get_or_create_conversation(conversation_id: str, first_question: str = "") -> str:
+def make_user_id(role: str) -> str:
+    return f"{role}_{uuid.uuid4().hex[:12]}"
+
+
+def create_or_update_admin_user() -> dict[str, Any]:
+    email = admin_email()
+    now = now_iso()
+    user_id = f"admin_{hashlib.sha256(email.encode('utf-8')).hexdigest()[:12]}"
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, email, display_name, role, created_at, last_seen_at)
+            VALUES (?, ?, ?, 'admin', ?, ?)
+            ON CONFLICT(id) DO UPDATE SET email = excluded.email, last_seen_at = excluded.last_seen_at
+            """,
+            (user_id, email, "管理员", now, now),
+        )
+        conn.commit()
+    return {"id": user_id, "email": email, "display_name": "管理员", "role": "admin"}
+
+
+def create_visitor_user() -> dict[str, Any]:
+    now = now_iso()
+    suffix = random.randint(1000, 9999)
+    user_id = make_user_id("visitor")
+    display_name = f"访客 {suffix}"
+    email = f"visitor_{suffix}_{user_id[-4:]}@guest.local"
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, role, created_at, last_seen_at) VALUES (?, ?, ?, 'visitor', ?, ?)",
+            (user_id, email, display_name, now, now),
+        )
+        conn.commit()
+    return {"id": user_id, "email": email, "display_name": display_name, "role": "visitor"}
+
+
+def create_session(user: dict[str, Any]) -> str:
+    session_id = uuid.uuid4().hex + uuid.uuid4().hex
+    now = now_iso()
+    expires_at = datetime.fromtimestamp(time.time() + SESSION_MAX_AGE_SECONDS).isoformat(timespec="seconds")
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (session_id, user["id"], now, now, expires_at),
+        )
+        conn.execute("UPDATE users SET last_seen_at = ? WHERE id = ?", (now, user["id"]))
+        conn.commit()
+    return session_id
+
+
+def get_session_user(session_id: str) -> dict[str, Any] | None:
+    if not session_id:
+        return None
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT u.id, u.email, u.display_name, u.role, s.expires_at
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+        if not row:
+            return None
+        if row["expires_at"] < now_iso():
+            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            conn.commit()
+            return None
+        now = now_iso()
+        conn.execute("UPDATE sessions SET last_seen_at = ? WHERE id = ?", (now, session_id))
+        conn.execute("UPDATE users SET last_seen_at = ? WHERE id = ?", (now, row["id"]))
+        conn.commit()
+    return {"id": row["id"], "email": row["email"], "display_name": row["display_name"], "role": row["role"]}
+
+
+def delete_session(session_id: str) -> None:
+    if not session_id:
+        return
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+
+
+def public_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not user:
+        return None
+    return {
+        "id": user["id"],
+        "email": user.get("email", ""),
+        "display_name": user.get("display_name", ""),
+        "role": user.get("role", ""),
+    }
+
+
+def get_or_create_conversation(user: dict[str, Any] | None, conversation_id: str, first_question: str = "") -> str:
     now = now_iso()
     candidate = conversation_id.strip() if conversation_id else ""
+    user_id = user.get("id", "") if user else ""
     with sqlite3.connect(DB_PATH) as conn:
         if candidate:
-            row = conn.execute("SELECT id FROM conversations WHERE id = ?", (candidate,)).fetchone()
+            if user and user.get("role") == "admin":
+                row = conn.execute("SELECT id FROM conversations WHERE id = ?", (candidate,)).fetchone()
+            else:
+                row = conn.execute("SELECT id FROM conversations WHERE id = ? AND user_id = ?", (candidate, user_id)).fetchone()
             if row:
                 conn.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, candidate))
                 conn.commit()
@@ -1238,32 +1385,39 @@ def get_or_create_conversation(conversation_id: str, first_question: str = "") -
         new_id = uuid.uuid4().hex
         title = first_question.strip()[:60] or "新的对话"
         conn.execute(
-            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (new_id, title, now, now),
+            "INSERT INTO conversations (id, title, created_at, updated_at, user_id) VALUES (?, ?, ?, ?, ?)",
+            (new_id, title, now, now, user_id),
         )
         conn.commit()
         return new_id
 
 
-def fetch_conversation_history(conversation_id: str, limit: int = 12) -> list[dict[str, Any]]:
+def fetch_conversation_history(conversation_id: str, limit: int = 12, user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     if not conversation_id:
         return []
+    user_clause = ""
+    params: list[Any] = [conversation_id]
+    if user and user.get("role") != "admin":
+        user_clause = " AND user_id = ?"
+        params.append(user["id"])
+    params.append(limit)
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
             SELECT role, content, category, sources_json, metadata_json, created_at
             FROM messages
-            WHERE conversation_id = ?
+            WHERE conversation_id = ? """ + user_clause + """
             ORDER BY id DESC
             LIMIT ?
             """,
-            (conversation_id, limit),
+            params,
         ).fetchall()
     return [dict(row) for row in reversed(rows)]
 
 
 def log_message(
+    user: dict[str, Any] | None,
     conversation_id: str,
     role: str,
     content: str,
@@ -1274,11 +1428,12 @@ def log_message(
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO messages (conversation_id, role, content, category, sources_json, metadata_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (conversation_id, user_id, role, content, category, sources_json, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
+                user.get("id", "") if user else "",
                 role,
                 content,
                 category,
@@ -1293,6 +1448,7 @@ def log_message(
 
 
 def log_question(
+    user: dict[str, Any] | None,
     question: str,
     user_type: str,
     category: str,
@@ -1317,15 +1473,18 @@ def log_question(
         cursor = conn.execute(
             """
             INSERT INTO questions (
-                question, user_type, category, answer, sources_json, quality_score,
+                user_id, user_display_name, user_role, question, user_type, category, answer, sources_json, quality_score,
                 was_answered, missing_info, answer_provider, conversation_id, message_id,
                 classification_provider, classification_reason, rewritten_question,
                 retrieval_method, retrieval_stats_json, retrieved_chunks_json,
                 conversation_turn_count, latency_ms, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                user.get("id", "") if user else "",
+                user.get("display_name", "") if user else "",
+                user.get("role", "") if user else "",
                 question,
                 user_type,
                 category,
@@ -1357,6 +1516,9 @@ def row_to_question(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"],
         "conversation_id": row["conversation_id"],
         "message_id": row["message_id"],
+        "user_id": row["user_id"],
+        "user_display_name": row["user_display_name"],
+        "user_role": row["user_role"],
         "question": row["question"],
         "user_type": row["user_type"],
         "category": row["category"],
@@ -1447,15 +1609,18 @@ def generate_answer_for_stream(question: str, category: str, chunks: list[dict[s
     return generate_template_answer(question, category, chunks), "", 1, "local_template"
 
 
-def chat(payload: dict[str, Any]) -> dict[str, Any]:
+def chat(payload: dict[str, Any], user: dict[str, Any] | None = None) -> dict[str, Any]:
     started = time.time()
     question, user_type, payload_conversation_id = validate_chat_payload(payload)
-    conversation_id = get_or_create_conversation(payload_conversation_id, question)
-    history = fetch_conversation_history(conversation_id)
+    if user:
+        user_type = user.get("role", user_type)
+    conversation_id = get_or_create_conversation(user, payload_conversation_id, question)
+    history = fetch_conversation_history(conversation_id, user=user)
     classification = classify_question_with_llm(question, history)
     category = classification["category"]
     rewritten_question = classification["rewritten_question"]
     user_message_id = log_message(
+        user,
         conversation_id,
         "user",
         question,
@@ -1471,6 +1636,7 @@ def chat(payload: dict[str, Any]) -> dict[str, Any]:
     sources = build_sources(chunks, rewritten_question)
     quality_score = evaluate_quality(answer, sources, was_answered, missing_info)
     assistant_message_id = log_message(
+        user,
         conversation_id,
         "assistant",
         answer,
@@ -1484,6 +1650,7 @@ def chat(payload: dict[str, Any]) -> dict[str, Any]:
         },
     )
     question_id = log_question(
+        user,
         question,
         user_type,
         category,
@@ -2036,23 +2203,28 @@ def evaluate_answer_against_case(
     }
 
 
-def conversation_detail(conversation_id: str) -> dict[str, Any]:
+def conversation_detail(conversation_id: str, user: dict[str, Any]) -> dict[str, Any]:
     conversation_id = conversation_id.strip()[:80]
     if not conversation_id:
         raise LookupError("Conversation not found")
+    user_clause = ""
+    params: list[Any] = [conversation_id]
+    if user.get("role") != "admin":
+        user_clause = " AND user_id = ?"
+        params.append(user["id"])
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        conversation = conn.execute("SELECT * FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        conversation = conn.execute("SELECT * FROM conversations WHERE id = ?" + user_clause, params).fetchone()
         if not conversation:
             raise LookupError("Conversation not found")
         rows = conn.execute(
             """
             SELECT id, role, content, category, sources_json, metadata_json, created_at
             FROM messages
-            WHERE conversation_id = ?
+            WHERE conversation_id = ?""" + user_clause + """
             ORDER BY id ASC
             """,
-            (conversation_id,),
+            params,
         ).fetchall()
     messages = []
     for row in rows:
@@ -2070,7 +2242,12 @@ def conversation_detail(conversation_id: str) -> dict[str, Any]:
     return {"conversation": dict(conversation), "messages": messages}
 
 
-def conversations_list() -> dict[str, Any]:
+def conversations_list(user: dict[str, Any]) -> dict[str, Any]:
+    user_clause = ""
+    params: list[Any] = []
+    if user.get("role") != "admin":
+        user_clause = " AND c.user_id = ?"
+        params.append(user["id"])
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -2097,10 +2274,11 @@ def conversations_list() -> dict[str, Any]:
                 SELECT 1
                 FROM questions q
                 WHERE q.conversation_id = c.id AND q.user_type != 'eval'
-            )
+            )""" + user_clause + """
             ORDER BY c.updated_at DESC
             LIMIT 80
-            """
+            """,
+            params,
         ).fetchall()
     conversations = []
     for row in rows:
@@ -2149,6 +2327,51 @@ def update_feedback(question_id: int, payload: dict[str, Any]) -> dict[str, Any]
     return {"ok": True}
 
 
+def login_admin(payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    email = str(payload.get("email", "")).strip().lower()
+    password = str(payload.get("password", ""))
+    configured_password = admin_password()
+    if not configured_password:
+        raise ValueError("管理员密码未配置。")
+    if email != admin_email() or password != configured_password:
+        raise PermissionError("账号或密码不正确。")
+    user = create_or_update_admin_user()
+    session_id = create_session(user)
+    return {"ok": True, "user": public_user(user)}, session_id
+
+
+def login_visitor() -> tuple[dict[str, Any], str]:
+    user = create_visitor_user()
+    session_id = create_session(user)
+    return {"ok": True, "user": public_user(user)}, session_id
+
+
+def admin_users() -> dict[str, Any]:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                u.id,
+                u.email,
+                u.display_name,
+                u.role,
+                u.created_at,
+                u.last_seen_at,
+                COUNT(DISTINCT q.id) AS question_count,
+                COUNT(DISTINCT c.id) AS conversation_count,
+                ROUND(AVG(q.quality_score), 1) AS avg_quality
+            FROM users u
+            LEFT JOIN questions q ON q.user_id = u.id AND q.user_type != 'eval'
+            LEFT JOIN conversations c ON c.user_id = u.id
+            GROUP BY u.id
+            ORDER BY u.last_seen_at DESC
+            LIMIT 200
+            """
+        ).fetchall()
+    return {"users": [dict(row) for row in rows]}
+
+
 def sources() -> dict[str, Any]:
     return {
         "sources": load_registry(),
@@ -2188,55 +2411,129 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
+    def route_path(self) -> str:
+        return urllib.parse.urlparse(self.path).path
+
+    def cookie_session_id(self) -> str:
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        morsel = cookie.get(SESSION_COOKIE_NAME)
+        return morsel.value if morsel else ""
+
+    def current_user(self) -> dict[str, Any] | None:
+        return get_session_user(self.cookie_session_id())
+
+    def require_user(self) -> dict[str, Any]:
+        user = self.current_user()
+        if not user:
+            raise PermissionError("Authentication required")
+        return user
+
+    def require_admin(self) -> dict[str, Any]:
+        user = self.require_user()
+        if user.get("role") != "admin":
+            raise PermissionError("Admin access required")
+        return user
+
+    def session_cookie_header(self, session_id: str) -> str:
+        return (
+            f"{SESSION_COOKIE_NAME}={session_id}; Path=/; Max-Age={SESSION_MAX_AGE_SECONDS}; "
+            "HttpOnly; SameSite=Lax"
+        )
+
+    def clear_session_cookie(self) -> None:
+        self.send_header("Set-Cookie", f"{SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+
+    def redirect(self, location: str) -> None:
+        self.send_response(HTTPStatus.FOUND)
+        self.send_header("Location", location)
+        self.end_headers()
+
     def do_GET(self) -> None:
         try:
-            if self.path == "/":
+            path = self.route_path()
+            if path == "/":
+                if not self.current_user():
+                    self.redirect("/login")
+                    return
                 self.send_file(STATIC_DIR / "index.html")
-            elif self.path == "/admin":
+            elif path == "/login":
+                self.send_file(STATIC_DIR / "login.html")
+            elif path == "/admin":
+                self.require_admin()
                 self.send_file(STATIC_DIR / "admin.html")
-            elif self.path.startswith("/static/"):
-                requested = self.path.removeprefix("/static/")
+            elif path.startswith("/static/"):
+                requested = path.removeprefix("/static/")
+                if requested == "admin.html":
+                    self.require_admin()
                 self.send_file((STATIC_DIR / requested).resolve(), root=STATIC_DIR)
-            elif self.path == "/api/suggested-questions":
+            elif path == "/api/me":
+                self.send_json({"user": public_user(self.current_user())})
+            elif path == "/api/suggested-questions":
                 self.send_json(suggested_questions())
-            elif self.path == "/api/admin/summary":
+            elif path == "/api/admin/summary":
+                self.require_admin()
                 self.send_json(admin_summary())
-            elif self.path == "/api/admin/questions":
+            elif path == "/api/admin/questions":
+                self.require_admin()
                 self.send_json(admin_questions())
-            elif self.path == "/api/admin/gaps":
+            elif path == "/api/admin/gaps":
+                self.require_admin()
                 self.send_json(admin_gaps())
-            elif self.path == "/api/admin/evals":
+            elif path == "/api/admin/evals":
+                self.require_admin()
                 self.send_json(admin_evals())
-            elif self.path == "/api/sources":
+            elif path == "/api/admin/users":
+                self.require_admin()
+                self.send_json(admin_users())
+            elif path == "/api/sources":
                 self.send_json(sources())
-            elif self.path == "/api/llm/status":
+            elif path == "/api/llm/status":
                 self.send_json(llm_status())
-            elif self.path == "/api/conversations":
-                self.send_json(conversations_list())
-            elif match := re.match(r"^/api/conversations/([A-Za-z0-9_-]+)$", self.path):
-                self.send_json(conversation_detail(match.group(1)))
+            elif path == "/api/conversations":
+                self.send_json(conversations_list(self.require_user()))
+            elif match := re.match(r"^/api/conversations/([A-Za-z0-9_-]+)$", path):
+                self.send_json(conversation_detail(match.group(1), self.require_user()))
             else:
                 self.send_error_json(HTTPStatus.NOT_FOUND, "Not found")
+        except PermissionError as exc:
+            if self.route_path() == "/admin":
+                self.redirect("/login?next=/admin")
+            else:
+                self.send_error_json(HTTPStatus.UNAUTHORIZED, str(exc))
         except Exception as exc:
             self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
 
     def do_POST(self) -> None:
         try:
+            path = self.route_path()
             payload = self.read_json()
-            if self.path == "/api/chat":
-                self.send_json(chat(payload))
-            elif self.path == "/api/chat/stream":
+            if path == "/api/auth/admin":
+                self.send_auth_response(login_admin(payload))
+            elif path == "/api/auth/visitor":
+                self.send_auth_response(login_visitor())
+            elif path == "/api/auth/logout":
+                delete_session(self.cookie_session_id())
+                self.send_logout_response()
+            elif path == "/api/chat":
+                self.send_json(chat(payload, self.require_user()))
+            elif path == "/api/chat/stream":
                 self.send_chat_stream(payload)
-            elif self.path == "/api/reindex":
+            elif path == "/api/reindex":
+                self.require_admin()
                 self.send_json(reindex())
-            elif self.path == "/api/admin/evals/run":
+            elif path == "/api/admin/evals/run":
+                self.require_admin()
                 self.send_json(run_admin_evals(payload))
-            elif match := re.match(r"^/api/admin/evals/(\d+)/analysis$", self.path):
+            elif match := re.match(r"^/api/admin/evals/(\d+)/analysis$", path):
+                self.require_admin()
                 self.send_json(admin_eval_analysis(int(match.group(1)), payload))
-            elif match := re.match(r"^/api/admin/questions/(\d+)/feedback$", self.path):
+            elif match := re.match(r"^/api/admin/questions/(\d+)/feedback$", path):
+                self.require_admin()
                 self.send_json(update_feedback(int(match.group(1)), payload))
             else:
                 self.send_error_json(HTTPStatus.NOT_FOUND, "Not found")
+        except PermissionError as exc:
+            self.send_error_json(HTTPStatus.UNAUTHORIZED, str(exc))
         except ValueError as exc:
             self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
         except LookupError as exc:
@@ -2250,6 +2547,25 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
             return {}
         raw = self.rfile.read(length).decode("utf-8")
         return json.loads(raw) if raw else {}
+
+    def send_auth_response(self, result: tuple[dict[str, Any], str]) -> None:
+        data, session_id = result
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", self.session_cookie_header(session_id))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_logout_response(self) -> None:
+        body = json.dumps({"ok": True}, ensure_ascii=False).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.clear_session_cookie()
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def send_json(self, data: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -2275,9 +2591,11 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
 
     def send_chat_stream(self, payload: dict[str, Any]) -> None:
         started = time.time()
+        user = self.require_user()
         question, user_type, payload_conversation_id = validate_chat_payload(payload)
-        conversation_id = get_or_create_conversation(payload_conversation_id, question)
-        history = fetch_conversation_history(conversation_id)
+        user_type = user.get("role", user_type)
+        conversation_id = get_or_create_conversation(user, payload_conversation_id, question)
+        history = fetch_conversation_history(conversation_id, user=user)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -2289,6 +2607,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
         category = classification["category"]
         rewritten_question = classification["rewritten_question"]
         user_message_id = log_message(
+            user,
             conversation_id,
             "user",
             question,
@@ -2310,6 +2629,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
                 self.send_stream_event({"type": "delta", "text": part})
             quality_score = evaluate_quality(answer, sources, was_answered, missing_info)
             assistant_message_id = log_message(
+                user,
                 conversation_id,
                 "assistant",
                 answer,
@@ -2318,6 +2638,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
                 {"answer_provider": answer_provider, "quality_score": quality_score, "missing_info": missing_info},
             )
             question_id = log_question(
+                user,
                 question,
                 user_type,
                 category,
@@ -2426,6 +2747,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
 
         quality_score = evaluate_quality(answer, sources, was_answered, missing_info)
         assistant_message_id = log_message(
+            user,
             conversation_id,
             "assistant",
             answer,
@@ -2439,6 +2761,7 @@ class AvatarRequestHandler(BaseHTTPRequestHandler):
             },
         )
         question_id = log_question(
+            user,
             question,
             user_type,
             category,
