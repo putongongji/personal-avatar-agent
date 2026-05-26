@@ -35,6 +35,7 @@ CLASSIFICATION_MODEL=Qwen/Qwen3-8B
 CLASSIFICATION_FALLBACK_MODELS=Qwen/Qwen2.5-7B-Instruct
 ADMIN_EMAIL=...
 ADMIN_PASSWORD=...
+SESSION_SECRET=...
 ```
 
 `Qwen/Qwen3.5-4B` 在当前 SiliconFlow chat completions 调用中会出现读超时，线上分类默认改用已验证可稳定返回 JSON 的 `Qwen/Qwen3-8B`。
@@ -46,7 +47,7 @@ ADMIN_PASSWORD=...
 - 聊天页：`http://127.0.0.1:8787/`
 - 后台：`http://127.0.0.1:8787/admin`
 
-访问聊天页前需要选择身份：访客可一键进入并自动生成访客账号；管理员需要用 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 登录，只有管理员能访问后台。
+访问聊天页前需要选择身份：访客可一键进入并自动生成访客账号；管理员需要用 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 登录，只有管理员能访问后台。`SESSION_SECRET` 用于签名登录 cookie，避免 Vercel 临时 SQLite 重置后刷新后台被踢出。
 
 ## 部署
 
@@ -68,7 +69,7 @@ EMBEDDING_MODEL=BAAI/bge-m3
 CLASSIFICATION_MODEL=Qwen/Qwen3.5-4B
 ```
 
-当前线上 SQLite 数据库运行在 Vercel 可写临时目录里，适合 MVP 访问验证；如果要长期保存提问记录、评测报告和后台统计，需要换成持久化数据库。
+当前线上 SQLite 数据库运行在 Vercel 可写临时目录里，适合 MVP 访问验证；如果要长期保存提问记录、评测报告和后台统计，需要换成持久化数据库。登录状态已改为签名 cookie，不再依赖 SQLite 的 `sessions` 表。
 
 ## 资料源
 
@@ -90,4 +91,4 @@ CLASSIFICATION_MODEL=Qwen/Qwen3.5-4B
 
 - 评估维度：`docs/evaluation-framework.md`
 - Golden set：`eval/golden-set.json`
-- 本地数据库：golden cases 已写入 SQLite 的 `eval_cases` 表，kind 为 `golden_single` / `golden_multi`。
+- 数据库初始化会自动把 golden cases 写入 SQLite 的 `eval_cases` 表，kind 为 `golden_single` / `golden_multi`；后台评测列表也会显示由低质量反馈沉淀的 `bad_case`。

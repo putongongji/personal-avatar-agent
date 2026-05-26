@@ -90,15 +90,24 @@ function renderSimpleMarkdown(markdown) {
 }
 
 async function loadAdmin() {
-  const [summaryResponse, questionsResponse, gapsResponse, evalsResponse, usersResponse] = await Promise.all([
+  refreshButton.disabled = true;
+  evalStatus.textContent = "正在刷新后台数据...";
+  try {
+  const responses = await Promise.all([
     fetch("/api/admin/summary"),
     fetch("/api/admin/questions"),
     fetch("/api/admin/gaps"),
     fetch("/api/admin/evals"),
     fetch("/api/admin/users"),
   ]);
-  if ([summaryResponse, questionsResponse, gapsResponse, evalsResponse, usersResponse].some((response) => response.status === 401)) {
-    window.location.href = "/login?next=/admin";
+  const [summaryResponse, questionsResponse, gapsResponse, evalsResponse, usersResponse] = responses;
+  if (responses.some((response) => response.status === 401)) {
+    evalStatus.textContent = "登录状态失效，请重新登录。";
+    return;
+  }
+  const failed = responses.find((response) => !response.ok);
+  if (failed) {
+    evalStatus.textContent = `刷新失败：${failed.status}`;
     return;
   }
   const summary = await summaryResponse.json();
@@ -116,6 +125,7 @@ async function loadAdmin() {
   setText("evalRan", evals.ran || 0);
   setText("evalPassRate", `${evals.pass_rate || 0}%`);
   setText("evalScore", evals.avg_score || 0);
+  evalStatus.textContent = evals.ran ? `已运行 ${evals.ran} 条评测` : "评测未运行";
 
   fillHtml("evalCases", renderEvalCases(evalCasesCache), "还没有评测用例");
   fillRows(
@@ -166,6 +176,11 @@ async function loadAdmin() {
     ]),
     "还没有提问记录"
   );
+  } catch (error) {
+    evalStatus.textContent = `刷新失败：${error.message}`;
+  } finally {
+  refreshButton.disabled = false;
+  }
 }
 
 function renderEvalStatus(status) {

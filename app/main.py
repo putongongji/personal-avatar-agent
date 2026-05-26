@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import hmac
 import json
 import math
 import mimetypes
@@ -35,6 +37,7 @@ DB_PATH = DATA_DIR / "avatar_agent.sqlite3"
 EMBEDDING_CACHE_PATH = DATA_DIR / "embeddings.json"
 SEED_EMBEDDING_CACHE_PATH = PROJECT_ROOT / "knowledge" / "generated" / "embeddings-bge-m3.json"
 SOURCE_REGISTRY_PATH = PROJECT_ROOT / "knowledge" / "sources" / "source-registry.json"
+EVAL_GOLDEN_SET_PATH = PROJECT_ROOT / "eval" / "golden-set.json"
 ENV_PATH = PROJECT_ROOT / ".env"
 SESSION_COOKIE_NAME = "paa_session"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
@@ -124,6 +127,10 @@ def admin_email() -> str:
 
 def admin_password() -> str:
     return env_value("ADMIN_PASSWORD")
+
+
+def session_secret() -> str:
+    return env_value("SESSION_SECRET") or admin_password() or env_value("MINIMAX_API_KEY") or "local-dev-session-secret"
 
 
 def selected_llm_provider() -> str:
@@ -312,7 +319,49 @@ def init_db() -> None:
         message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
         if "user_id" not in message_columns:
             conn.execute("ALTER TABLE messages ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
+        seed_golden_cases(conn)
         conn.commit()
+
+
+def seed_golden_cases(conn: sqlite3.Connection) -> None:
+    if not EVAL_GOLDEN_SET_PATH.exists():
+        return
+    try:
+        data = json.loads(EVAL_GOLDEN_SET_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    for case in data.get("cases", []):
+        case_id = str(case.get("id", "")).strip()
+        question = str(case.get("question", "")).strip()
+        if not question and isinstance(case.get("turns"), list):
+            question = " / ".join(str(turn).strip() for turn in case["turns"] if str(turn).strip())
+        if not case_id or not question:
+            continue
+        kind = "golden_multi" if case.get("type") == "multi_turn" else "golden_single"
+        expected = json.dumps(case, ensure_ascii=False)
+        expected_sources = json.dumps(case.get("expected_sources", []), ensure_ascii=False)
+        category = str(case.get("expected_category", ""))
+        row = conn.execute("SELECT id FROM eval_cases WHERE kind = ? AND notes = ?", (kind, case_id)).fetchone()
+        if row:
+            conn.execute(
+                """
+                UPDATE eval_cases
+                SET question = ?, expected_answer = ?, expected_sources_json = ?, category = ?
+                WHERE id = ?
+                """,
+                (question, expected, expected_sources, category, row[0]),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO eval_cases (
+                    kind, question, expected_answer, expected_sources_json, category,
+                    status, severity, notes, source_question_id, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'new', '', ?, 0, ?)
+                """,
+                (kind, question, expected, expected_sources, category, case_id, now_iso()),
+            )
 
 
 def load_registry() -> list[dict[str, Any]]:
@@ -1309,9 +1358,10 @@ def create_visitor_user() -> dict[str, Any]:
 
 
 def create_session(user: dict[str, Any]) -> str:
-    session_id = uuid.uuid4().hex + uuid.uuid4().hex
     now = now_iso()
-    expires_at = datetime.fromtimestamp(time.time() + SESSION_MAX_AGE_SECONDS).isoformat(timespec="seconds")
+    expires_ts = int(time.time() + SESSION_MAX_AGE_SECONDS)
+    session_id = signed_session_token(user, expires_ts)
+    expires_at = datetime.fromtimestamp(expires_ts).isoformat(timespec="seconds")
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             "INSERT INTO sessions (id, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
@@ -1322,9 +1372,95 @@ def create_session(user: dict[str, Any]) -> str:
     return session_id
 
 
+def b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def signed_session_token(user: dict[str, Any], expires_ts: int) -> str:
+    payload = {
+        "v": 1,
+        "id": user["id"],
+        "email": user.get("email", ""),
+        "display_name": user.get("display_name", ""),
+        "role": user.get("role", ""),
+        "exp": expires_ts,
+        "sid": uuid.uuid4().hex,
+    }
+    payload_b64 = b64url_encode(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(session_secret().encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest()
+    return f"v1.{payload_b64}.{b64url_encode(signature)}"
+
+
+def verify_signed_session_token(session_id: str) -> dict[str, Any] | None:
+    if not session_id.startswith("v1."):
+        return None
+    parts = session_id.split(".")
+    if len(parts) != 3:
+        return None
+    _, payload_b64, signature_b64 = parts
+    expected = hmac.new(session_secret().encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest()
+    try:
+        actual = b64url_decode(signature_b64)
+    except Exception:
+        return None
+    if not hmac.compare_digest(expected, actual):
+        return None
+    try:
+        payload = json.loads(b64url_decode(payload_b64).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if int(payload.get("exp", 0)) < int(time.time()):
+        return None
+    role = str(payload.get("role", ""))
+    if role not in {"admin", "visitor"}:
+        return None
+    return {
+        "id": str(payload.get("id", "")),
+        "email": str(payload.get("email", "")),
+        "display_name": str(payload.get("display_name", "")),
+        "role": role,
+    }
+
+
+def touch_session_user(user: dict[str, Any]) -> None:
+    if not user.get("id"):
+        return
+    now = now_iso()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, email, display_name, role, created_at, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                email = excluded.email,
+                display_name = excluded.display_name,
+                role = excluded.role,
+                last_seen_at = excluded.last_seen_at
+            """,
+            (
+                user["id"],
+                user.get("email", ""),
+                user.get("display_name", "") or ("管理员" if user.get("role") == "admin" else "访客"),
+                user.get("role", ""),
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+
+
 def get_session_user(session_id: str) -> dict[str, Any] | None:
     if not session_id:
         return None
+    signed_user = verify_signed_session_token(session_id)
+    if signed_user:
+        touch_session_user(signed_user)
+        return signed_user
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
@@ -1765,7 +1901,7 @@ def admin_evals() -> dict[str, Any]:
             """
             SELECT *
             FROM eval_cases
-            WHERE kind LIKE 'golden_%'
+            WHERE kind LIKE 'golden_%' OR kind = 'bad_case'
             ORDER BY id ASC
             """
         ).fetchall()
