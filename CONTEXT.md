@@ -31,7 +31,7 @@
 - 新增 `docs/rag-strategy.md`，记录面向职业问答的 chunk、检索、召回、多轮和评测策略。
 - 新增 `docs/evaluation-framework.md` 和 `eval/golden-set.json`，定义 8 个评估维度与 24 条 golden cases，并已同步写入 SQLite `eval_cases` 表。
 - 后台新增评测面板，可运行前 5 条或全部 golden cases，并把分类、检索、回答、断言检查结果写回 `eval_cases`；后台高频提问、分类、缺口和最近提问统计会排除评测流量。
-- 重做聊天页交互：新增对话列表与新话题入口，流式输出默认跟随最新内容但尊重用户手动滚动，输入框回车发送、Shift+Enter 换行且不出现内部滚动条，进度改为运行中动效与完成后默认折叠的执行过程，回答中可点击停止。
+- 重做聊天页交互：新增对话列表与新话题入口，流式输出默认跟随最新内容但尊重用户手动滚动；用户滚轮向上、触摸、拖动滚动区或按 PageUp / 方向键时会立即暂停自动跟随，输入框回车发送、Shift+Enter 换行且不出现内部滚动条，进度改为运行中动效与完成后默认折叠的执行过程，回答中可点击停止。
 - 改进后台评测报告：`eval_runner` 不再只显示失败原因，会按分类、检索、答案覆盖、边界和引用拆分维度分，并标明缺失事实是未召回还是已召回但未写入回答。
 - 后台评测报告改为弹窗呈现，并新增按需生成的 MiniMax AI 分析，基于每条 golden case 的维度分、实际回答、实际来源和召回结果分析原因与改进方案，结果缓存到 `details_json.ai_analysis`。
 - 新增 Vercel 部署结构：`public/` 存放线上静态页面，`api/` 暴露 Python Function 入口，`knowledge/public/career-panorama.md` 存放公开职业档案副本。

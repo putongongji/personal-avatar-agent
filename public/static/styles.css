@@ -335,7 +335,7 @@ button:disabled {
   gap: 18px;
   overflow-y: auto;
   overflow-x: hidden;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 .messages:empty::before {

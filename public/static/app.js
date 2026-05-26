@@ -16,6 +16,8 @@ let shouldFollowOutput = true;
 let currentUser = null;
 let currentAbortController = null;
 let stopRequested = false;
+let userPausedOutput = false;
+let pendingScrollFrame = 0;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -25,16 +27,37 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function isNearMessageBottom() {
+  const distance = messages.scrollHeight - messages.scrollTop - messages.clientHeight;
+  return distance < 96;
+}
+
 function scrollToLatest(force = false) {
-  if (!force && !shouldFollowOutput) return;
-  requestAnimationFrame(() => {
+  if (!force && (!shouldFollowOutput || userPausedOutput)) return;
+  if (pendingScrollFrame) cancelAnimationFrame(pendingScrollFrame);
+  pendingScrollFrame = requestAnimationFrame(() => {
+    pendingScrollFrame = 0;
+    if (!force && (!shouldFollowOutput || userPausedOutput)) return;
     messages.scrollTop = messages.scrollHeight;
   });
 }
 
 function updateFollowState() {
-  const distance = messages.scrollHeight - messages.scrollTop - messages.clientHeight;
-  shouldFollowOutput = distance < 96;
+  const nearBottom = isNearMessageBottom();
+  if (nearBottom) {
+    userPausedOutput = false;
+  }
+  shouldFollowOutput = nearBottom && !userPausedOutput;
+}
+
+function pauseOutputFollow() {
+  if (!isStreaming) return;
+  userPausedOutput = true;
+  shouldFollowOutput = false;
+  if (pendingScrollFrame) {
+    cancelAnimationFrame(pendingScrollFrame);
+    pendingScrollFrame = 0;
+  }
 }
 
 function resizeInput() {
@@ -199,6 +222,7 @@ async function ask(question) {
   isStreaming = true;
   stopRequested = false;
   currentAbortController = new AbortController();
+  userPausedOutput = false;
   shouldFollowOutput = true;
 
   const assistant = createMessage("assistant", "Agent");
@@ -464,6 +488,15 @@ input.addEventListener("keydown", (event) => {
 
 input.addEventListener("input", resizeInput);
 messages.addEventListener("scroll", updateFollowState);
+messages.addEventListener("wheel", (event) => {
+  if (event.deltaY < 0) pauseOutputFollow();
+});
+messages.addEventListener("touchstart", pauseOutputFollow, { passive: true });
+messages.addEventListener("pointerdown", pauseOutputFollow);
+window.addEventListener("keydown", (event) => {
+  if (!["ArrowUp", "PageUp", "Home"].includes(event.key)) return;
+  pauseOutputFollow();
+});
 newConversationButton.addEventListener("click", startNewConversation);
 logoutButton.addEventListener("click", logout);
 
